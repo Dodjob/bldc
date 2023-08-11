@@ -48,16 +48,16 @@
 //#define CURRENT_FILTER_OFF()	palClearPad(GPIOD, 2)
 
 //CHOOSE PAS SENSOR (both commented out = disable PAS)
-//#define HW_HAS_3_WIRES_PAS_SENSOR
-#define HW_HAS_4_WIRES_PAS_SENSOR
+#define HW_HAS_3_WIRES_PAS_SENSOR
+//#define HW_HAS_4_WIRES_PAS_SENSOR
 
 //HAS EXT SPEED SENSOR WITH 3 WIRE PAS
 #ifdef HW_HAS_3_WIRES_PAS_SENSOR
 #define HW_HAS_PAS_SENSOR
-#define HW_HAS_WHEEL_SPEED_SENSOR
-void hw_update_speed_sensor(void);
-float hw_get_speed(void);
-float hw_get_distance_abs(void);
+//#define HW_HAS_WHEEL_SPEED_SENSOR
+//void hw_update_speed_sensor(void);
+// float hw_get_speed(void);
+// float hw_get_distance_abs(void);
 #endif
 
 //HAS EXT SPEED SENSOR WITH 4 WIRES PAS
@@ -203,6 +203,7 @@ float hw_get_distance_abs(void);
 #define HW_ICU_GPIO				GPIOB
 #define HW_ICU_PIN				6
 #endif
+
 // Case 4 WIRE PAS SENSOR,ICU Not used, routed to a dummy pin (not present in 64 pin
 // package) to free SERVO PORT FOR EXT SPEED
 #ifdef HW_HAS_4_WIRES_PAS_SENSOR
@@ -300,10 +301,10 @@ float hw_get_distance_abs(void);
 #define MCCONF_L_RPM_MIN				-150000.0	// (jaykup) (flipsky firmware) The motor speed limit (Lower)
 #endif
 #ifndef MCCONF_SI_BATTERY_CELLS
-#define MCCONF_SI_BATTERY_CELLS			12 // (jaykup) Battery Cells
+#define MCCONF_SI_BATTERY_CELLS			13 // (jaykup) Battery Cells
 #endif
 #ifndef MCCONF_SI_BATTERY_AH
-#define MCCONF_SI_BATTERY_AH			10.0 // (jaykup) Battery amp hours
+#define MCCONF_SI_BATTERY_AH			20.0 // (jaykup) Battery amp hours
 #endif
 
 // (jaykup) Suggested defaults
@@ -312,13 +313,13 @@ float hw_get_distance_abs(void);
 #endif
 
 // Setting limits
-#define HW_LIM_CURRENT			-120.0, 120.0 // (jaykup) phase amps
-#define HW_LIM_CURRENT_IN		-120.0, 120.0 // (jaykup) battery amps
+#define HW_LIM_CURRENT			-160.0, 160.0 // (jaykup) phase amps
+#define HW_LIM_CURRENT_IN		-30.0, 160.0 // (jaykup) battery amps
 #define HW_LIM_CURRENT_ABS		0.0, 200 // (jaykup) abs phase amps
 #define HW_LIM_VIN				6.0, 120.0 // (jaykup)
 #define HW_LIM_ERPM				-200e3, 200e3 // (jaykup)
 #define HW_LIM_DUTY_MIN			0.0, 0.1
 #define HW_LIM_DUTY_MAX			0.0, 0.99
-#define HW_LIM_TEMP_FET			-40.0, 110.0
+#define HW_LIM_TEMP_FET			-40.0, 100.0
 
 #endif /* HW_75_100_V2_H_ */

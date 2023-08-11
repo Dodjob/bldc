@@ -109,7 +109,7 @@ static volatile float current_speed_goal = 0;
 static volatile float pas_pid_start_percent;
 
 // DEBUG
- static volatile float drift_percent_check;
+static volatile float drift_percent_check;
 // static volatile uint16_t debug_2;
 
 /**
@@ -231,13 +231,13 @@ float app_pas_get_pedal_torque(void)
 
 float app_pas_get_kp(void)
 {
-	//return kp * error;
+	// return kp * error;
 	return drift_percent_check;
 }
 
 float app_pas_get_ki(void)
 {
-	//return ki * error_ki;
+	// return ki * error_ki;
 	return drift_percent;
 }
 
@@ -306,6 +306,16 @@ float apply_pid_speed_limiting(float *input_value, float max_set_speed)
 	// Calculate the error (difference between desired speed and current speed)
 	error = ((max_set_speed - current_speed) * 100) / (max_set_speed * pas_pid_start_percent); // this should create an error at 100% by 80% of max speed
 	error = fmin(fmax(error, -100.0), 100.0);
+
+	// // PRINT DEBUG
+	// static uint16_t delay_to_print = 0;
+	// if (delay_to_print++ > 100)
+	// {
+	// 	delay_to_print = 0;
+	// 	commands_printf("current_speed %.2f, error %.2f, error_ki %.2f, output_pid %.2f,max_speed_set %.2f, input_value %.2f \n", (double) current_speed,  (double) error,  (double) error_ki, (double) output_pid,  (double)max_set_speed, (double) *input_value);
+	// 	//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
+	// }
+
 	// guard from under threshold actions or too motivated ki
 	if (error >= 100)
 	{
@@ -315,7 +325,7 @@ float apply_pid_speed_limiting(float *input_value, float max_set_speed)
 	else if (error <= -100)
 	{
 		error_ki = 0.0;
-		*input_value *= 0.0;
+		*input_value *= 0.0; // overspeed of a lot we surely stop everything
 		return *input_value;
 	}
 
@@ -468,7 +478,7 @@ void pas_event_handler(void)
 		sample_time = uptime + downtime;
 		if (sample_time > (config.magnets * 2))
 		{
-			drift_percent_check= (uptime * 100) / sample_time;
+			drift_percent_check = (uptime * 100) / sample_time;
 			drift_percent = ((((uptime * 100) / sample_time) - config.pas_hall_torque_offset) * -1) * config.pas_hall_torque_gain; // 5 is a calibration factor to get percentage and 36 is the offset
 			uptime = 0;
 			downtime = 0;
@@ -644,7 +654,6 @@ static THD_FUNCTION(pas_thread, arg)
 
 				output = (utils_throttle_curve((torque_percent / 100), -0.95, 0, 0)) + 0.001; // use exp curving to compensate bad TS and add a minimum 0.001 too
 				output = fmin(fmax(output, 0.0), 1.0);
-
 			}
 			else
 			{
@@ -698,8 +707,7 @@ static THD_FUNCTION(pas_thread, arg)
 
 			if (pedal_rpm > (config.pedal_rpm_start + 1.0))
 			{
-				output = config.current_scaling * torque_ratio * sub_scaling;
-				utils_truncate_number(&output, 0.0, config.current_scaling * sub_scaling);
+				output = torque_ratio;
 				ms_without_cadence = 0.0;
 				ms_without_cadence_cooling_time = 0.0;
 				min_start_torque_reached = false;
@@ -718,8 +726,7 @@ static THD_FUNCTION(pas_thread, arg)
 						ms_without_cadence += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
 						if (ms_without_cadence < MAX_MS_WITHOUT_CADENCE)
 						{
-							output = config.current_scaling * torque_ratio * sub_scaling;
-							utils_truncate_number(&output, 0.0, config.current_scaling * sub_scaling);
+							output = torque_ratio;
 						}
 						else
 						{
@@ -742,8 +749,7 @@ static THD_FUNCTION(pas_thread, arg)
 		case PAS_CTRL_TYPE_CAN_TORQUE:
 		{
 			torque_ratio = hw_get_PAS_torque();
-			output = torque_ratio * config.current_scaling * sub_scaling;
-			utils_truncate_number(&output, 0.0, config.current_scaling * sub_scaling);
+			output = torque_ratio;
 		}
 		/* fall through */
 		case PAS_CTRL_TYPE_CAN_TORQUE_WITH_CADENCE_TIMEOUT:
@@ -770,17 +776,19 @@ static THD_FUNCTION(pas_thread, arg)
 		}
 
 		// APPLY PAS LIMITATION
-		output = output * (config.current_scaling / 100) * sub_scaling;
+		output = output * config.current_scaling * sub_scaling;
 
-		static uint16_t delay_to_print = 0;
-		 if (delay_to_print++ > 100)
-		 {
-		 	delay_to_print = 0;
-		 	//commands_printf("output %.2f, config.current_scaling %.2f, sub_scaling %.2f \n", (double)output, (double) config.current_scaling, (double) sub_scaling);
-			//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
-		}
 		// GET THROTTLE INPUT
 		output = get_throttle_input(&output);
+
+		// // PRINT DEBUG
+		// static uint16_t delay_to_print = 0;
+		// if (delay_to_print++ > 100)
+		// {
+		// 	delay_to_print = 0;
+		// 	commands_printf("output %.2f, config.current_scaling %.2f, sub_scaling %.2f \n", (double)output, (double) config.current_scaling, (double) sub_scaling);
+		// 	//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
+		// }
 
 		// APPLY SPEED LIMITING
 		// max_speed = config.pas_max_speed;
@@ -854,6 +862,15 @@ static THD_FUNCTION(pas_thread, arg)
 			ramp_time_neg = config.ramp_time_brakes_neg; // Config ramp time for brake negative ramping
 		}
 
+		// // PRINT DEBUG
+		// static uint16_t delay_to_print = 0;
+		// if (delay_to_print++ > 100)
+		// {
+		// 	delay_to_print = 0;
+		// 	commands_printf("output %.2f, brakes %.2f, config.pas_brake_voltage_trigger %.2f, brakes_on %d \n", (double)output, (double)brakes, (double)config.pas_brake_voltage_trigger, (int)brakes_on);
+		// 	// commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
+		// }
+
 		// APPLY RAMPING
 		output = apply_ramping(&output, ramp_time_pos, ramp_time_neg, brakes_on);
 
@@ -881,7 +898,7 @@ static THD_FUNCTION(pas_thread, arg)
 		// FORCE SEND PAS CUSTOM DATA
 		// send_pas_data();
 
-		// DEBUG PRINT
+		// // // DEBUG PRINT
 		//  static uint16_t delay_to_print = 0;
 		//   if (delay_to_print++ > 100)
 		//   {
