@@ -312,7 +312,7 @@ float apply_pid_speed_limiting(float *input_value, float max_set_speed)
 	// if (delay_to_print++ > 100)
 	// {
 	// 	delay_to_print = 0;
-	// 	commands_printf("current_speed %.2f, error %.2f, error_ki %.2f, output_pid %.2f,max_speed_set %.2f, input_value %.2f \n", (double) current_speed,  (double) error,  (double) error_ki, (double) output_pid,  (double)max_set_speed, (double) *input_value);
+	// 	commands_printf("current_speed %.2f, error %.2f, error_ki %.2f, output_pid %.2f,max_speed_set %.2f, input_value %.2f , torque_ratio %.2f \n", (double) current_speed,  (double) error,  (double) error_ki, (double) output_pid,  (double)max_set_speed, (double) *input_value, (double) torque_ratio);
 	// 	//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
 	// }
 
@@ -343,7 +343,7 @@ float apply_pid_speed_limiting(float *input_value, float max_set_speed)
 	prev_error = error;
 
 	// Apply the scaling factor to the output
-	if (*input_value > output_pid)
+	if (*input_value > output_pid && pedal_rpm > (config.pedal_rpm_start))
 		*input_value *= output_pid;
 
 	return *input_value;
@@ -702,12 +702,15 @@ static THD_FUNCTION(pas_thread, arg)
 				app_adc_detach_adc(1);
 				first_start_init = false;
 			}
-
+			//get torque
 			torque_ratio = app_adc_get_decoded_level();
 
 			if (pedal_rpm > (config.pedal_rpm_start + 1.0))
 			{
-				output = torque_ratio;
+				output = utils_map(pedal_rpm, config.pedal_rpm_start, config.pedal_rpm_end, 0.0, config.current_scaling * sub_scaling);
+				utils_truncate_number(&output, 0.0, config.current_scaling * sub_scaling);	
+				output += torque_ratio;
+				output = fmin(fmax(output, 0.0), 1.0);
 				ms_without_cadence = 0.0;
 				ms_without_cadence_cooling_time = 0.0;
 				min_start_torque_reached = false;
@@ -715,33 +718,42 @@ static THD_FUNCTION(pas_thread, arg)
 			// start on pedal press available (1s delay) for 3s, if no PAS signal are detected it cools down for 1 second.
 			else
 			{
-				if (torque_ratio > min_start_torque)
-				{
-					min_start_torque_reached = true;
-				}
-				if (min_start_torque_reached)
-				{
-					if (ms_without_cadence_cooling_time > MS_WITHOUT_CADENCE_COOLING_TIME)
-					{
-						ms_without_cadence += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
-						if (ms_without_cadence < MAX_MS_WITHOUT_CADENCE)
-						{
-							output = torque_ratio;
-						}
-						else
-						{
-							output = 0.0;
-							ms_without_cadence_cooling_time = 0.0;
-							min_start_torque_reached = false;
-						}
-					}
-					else
-					{
-						output = 0.0;
-						ms_without_cadence_cooling_time += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
-					}
-				}
+				// if (torque_ratio > min_start_torque)
+				// {
+				// 	min_start_torque_reached = true;
+				// }
+				// if (min_start_torque_reached)
+				// {
+				// 	if (ms_without_cadence_cooling_time > MS_WITHOUT_CADENCE_COOLING_TIME)
+				// 	{
+				// 		ms_without_cadence += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
+				// 		if (ms_without_cadence < MAX_MS_WITHOUT_CADENCE)
+				// 		{
+				// 			output = torque_ratio;
+				// 		}
+				// 		else
+				// 		{
+				// 			output = 0.0;
+				// 			ms_without_cadence_cooling_time = 0.0;
+				// 			min_start_torque_reached = false;
+				// 		}
+				// 	}
+				// 	else
+				// 	{
+				// 		output = 0.0;
+				// 		ms_without_cadence_cooling_time += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
+				// 	}
+				// }
+				output= 0.0;
 			}
+				// // PRINT DEBUG
+		static uint16_t delay_to_print = 0;
+		if (delay_to_print++ > 100)
+		{
+			delay_to_print = 0;
+			commands_printf("output %.2f, config.current_scaling %.2f, sub_scaling, torque_ratio %.2f \n", (double)output, (double) config.current_scaling, (double) sub_scaling, (double)torque_ratio);
+			//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
+		}
 			break;
 
 #ifdef HW_HAS_CAN_TORQUE_SENSOR
@@ -824,7 +836,7 @@ static THD_FUNCTION(pas_thread, arg)
 					else
 					{
 						brakes_delay_ticks = 0;
-						brakes_on = 0;
+						brakes_on = 0; // release of the brake ramping time
 					}
 				}
 			}
@@ -874,23 +886,24 @@ static THD_FUNCTION(pas_thread, arg)
 		// APPLY RAMPING
 		output = apply_ramping(&output, ramp_time_pos, ramp_time_neg, brakes_on);
 
-		if (output < 0.001)
-		{
-			ms_without_power += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
-		}
+		// GUARD FOR TORQUE ONLY 
+		// if (output < 0.001)
+		// {
+		// 	ms_without_power += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
+		// }
 
-		// Safe start is enabled if the output has not been zero for long enough
-		if (ms_without_power < MIN_MS_WITHOUT_POWER)
-		{
-			static int pulses_without_power_before = 0;
-			if (ms_without_power == pulses_without_power_before)
-			{
-				ms_without_power = 0;
-			}
-			pulses_without_power_before = ms_without_power;
-			output_current_rel = 0.0;
-			continue;
-		}
+		// // Safe start is enabled if the output has not been zero for long enough
+		// if (ms_without_power < MIN_MS_WITHOUT_POWER)
+		// {
+		// 	static int pulses_without_power_before = 0;
+		// 	if (ms_without_power == pulses_without_power_before)
+		// 	{
+		// 		ms_without_power = 0;
+		// 	}
+		// 	pulses_without_power_before = ms_without_power;
+		// 	output_current_rel = 0.0;
+		// 	continue;
+		// }
 
 		// Reset timeout
 		timeout_reset();
