@@ -57,6 +57,7 @@ static volatile float min_pedal_period = 0.0;
 static volatile float direction_conf = 0.0;
 static volatile float pedal_rpm = 0;
 static volatile float throttle_input = 0.0;
+static volatile float ext_throttle_input = 0.0;
 static volatile float brake_input = 0.0;
 static volatile bool primary_output = false;
 static volatile bool stop_now = true;
@@ -205,6 +206,11 @@ void app_pas_set_current_sub_scaling(float current_sub_scaling)
 void app_pas_set_assist_max_speed(float assist_max_speed)
 {
 	max_speed = assist_max_speed;
+}
+
+void app_pas_set_ext_throttle(float ext_throttle)
+{
+	ext_throttle_input = ext_throttle;
 }
 
 // APP PAS CALLING FUNCTIONS
@@ -384,7 +390,7 @@ float apply_ramping(float *input_value, float ramp_time_pos, float ramp_time_neg
 // INPUT FUNCTIONS
 float get_throttle_input(float *input_value)
 {
-	throttle_input = app_adc_get_decoded_level();
+	throttle_input = app_adc_get_decoded_level() + ext_throttle_input;
 	*input_value += throttle_input;
 	// guard for values over 1
 	*input_value = fmin(fmax(*input_value, 0.0), 1.0);
