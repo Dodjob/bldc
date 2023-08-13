@@ -476,8 +476,10 @@ static THD_FUNCTION(adc_thread, arg)
 					decoded_level2 = pwr;
 					if (app_pas_get_regen_status())
 					{
-						current_rel = fabsf(pwr);
-						current_mode_brake = true;
+							//current_rel = fabsf(pwr);
+							brake = fabsf(pwr);
+							current_mode_brake = true;
+
 					}
 				}
 				else

@@ -1912,6 +1912,14 @@ static lbm_value ext_app_pas_set_ext_throttle(lbm_value *args, lbm_uint argn)
 	return ENC_SYM_TRUE;
 }
 
+static lbm_value ext_app_pas_set_ext_brakes(lbm_value *args, lbm_uint argn)
+{
+	LBM_CHECK_ARGN_NUMBER(1);
+	timeout_reset();
+	app_pas_set_ext_brakes(lbm_dec_as_float(args[0]));
+	return ENC_SYM_TRUE;
+}
+
 
 static lbm_value ext_app_pas_set_assist_max_power(lbm_value *args, lbm_uint argn)
 {
@@ -5621,6 +5629,9 @@ void lispif_load_vesc_extensions(void)
 	lbm_add_extension("app-pas-set-assist-max-speed", ext_app_pas_set_assist_max_speed);
 	lbm_add_extension("app-pas-set-assist-max-power", ext_app_pas_set_assist_max_power);
 	lbm_add_extension("app-pas-set-ext-throttle", ext_app_pas_set_ext_throttle);
+	lbm_add_extension("app-pas-set-ext-brakes", ext_app_pas_set_ext_brakes);
+
+	
 
 	// Motor set commands
 	lbm_add_extension("set-current", ext_set_current);

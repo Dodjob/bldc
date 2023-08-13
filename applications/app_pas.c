@@ -58,6 +58,7 @@ static volatile float direction_conf = 0.0;
 static volatile float pedal_rpm = 0;
 static volatile float throttle_input = 0.0;
 static volatile float ext_throttle_input = 0.0;
+static volatile float ext_brakes_input = 0.0;
 static volatile float brake_input = 0.0;
 static volatile bool primary_output = false;
 static volatile bool stop_now = true;
@@ -213,6 +214,10 @@ void app_pas_set_ext_throttle(float ext_throttle)
 	ext_throttle_input = ext_throttle;
 }
 
+void app_pas_set_ext_brakes(float ext_brakes)
+{
+	ext_brakes_input = ext_brakes;
+}
 // APP PAS CALLING FUNCTIONS
 float app_pas_get_current_target_rel(void)
 {
@@ -237,14 +242,14 @@ float app_pas_get_pedal_torque(void)
 
 float app_pas_get_kp(void)
 {
-	// return kp * error;
-	return drift_percent_check;
+	return kp * error;
+	//return drift_percent_check;
 }
 
 float app_pas_get_ki(void)
 {
-	// return ki * error_ki;
-	return drift_percent;
+	return ki * error_ki;
+	//return drift_percent;
 }
 
 float app_pas_get_kd(void)
@@ -349,7 +354,7 @@ float apply_pid_speed_limiting(float *input_value, float max_set_speed)
 	prev_error = error;
 
 	// Apply the scaling factor to the output
-	if (*input_value > output_pid && pedal_rpm > (config.pedal_rpm_start))
+	if (*input_value > output_pid )
 		*input_value *= output_pid;
 
 	return *input_value;
@@ -708,13 +713,13 @@ static THD_FUNCTION(pas_thread, arg)
 				app_adc_detach_adc(1);
 				first_start_init = false;
 			}
-			//get torque
+			// get torque
 			torque_ratio = app_adc_get_decoded_level();
 
 			if (pedal_rpm > (config.pedal_rpm_start + 1.0))
 			{
 				output = utils_map(pedal_rpm, config.pedal_rpm_start, config.pedal_rpm_end, 0.0, 0.5);
-				utils_truncate_number(&output, 0.0, 0.5);	
+				utils_truncate_number(&output, 0.0, 0.5);
 				output += torque_ratio;
 				output = fmin(fmax(output, 0.0), 1.0);
 				ms_without_cadence = 0.0;
@@ -750,16 +755,16 @@ static THD_FUNCTION(pas_thread, arg)
 				// 		ms_without_cadence_cooling_time += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
 				// 	}
 				// }
-				output= 0.0;
+				output = 0.0;
 			}
-				// // PRINT DEBUG
-		static uint16_t delay_to_print = 0;
-		if (delay_to_print++ > 100)
-		{
-			delay_to_print = 0;
-			commands_printf("output %.2f, config.current_scaling %.2f, sub_scaling, torque_ratio %.2f \n", (double)output, (double) config.current_scaling, (double) sub_scaling, (double)torque_ratio);
-			//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
-		}
+			// // PRINT DEBUG
+			// static uint16_t delay_to_print = 0;
+			// if (delay_to_print++ > 100)
+			// {
+			// 	delay_to_print = 0;
+			// 	commands_printf("output %.2f, config.current_scaling %.2f, sub_scaling, torque_ratio %.2f \n", (double)output, (double)config.current_scaling, (double)sub_scaling, (double)torque_ratio);
+			// 	// commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
+			// }
 			break;
 
 #ifdef HW_HAS_CAN_TORQUE_SENSOR
@@ -814,6 +819,7 @@ static THD_FUNCTION(pas_thread, arg)
 
 		// BRAKES
 		brakes = get_brakes_input(&brakes);
+		const float rpm_now = mc_interface_get_rpm();
 
 		float ramp_time_pos = config.ramp_time_pos; // Config ramp time for positive ramping
 		float ramp_time_neg = config.ramp_time_neg; // Config ramp time for negative ramping
@@ -875,9 +881,16 @@ static THD_FUNCTION(pas_thread, arg)
 		}
 		else
 		{
-			output = 0.0;
-			ramp_time_pos = config.ramp_time_brakes_pos; // Config ramp time for brake positive ramping
-			ramp_time_neg = config.ramp_time_brakes_neg; // Config ramp time for brake negative ramping
+			if (ext_brakes_input > 0)
+			{
+				if (rpm_now > 100){
+				output = ext_brakes_input * -1 * (0.5);
+				ramp_time_pos = config.ramp_time_brakes_pos; // Config ramp time for brake positive ramping
+				ramp_time_neg = config.ramp_time_brakes_neg; // Config ramp time for brake negative ramping
+				}else{
+					output = 0.0;	
+				}
+			}
 		}
 
 		// // PRINT DEBUG
@@ -892,7 +905,7 @@ static THD_FUNCTION(pas_thread, arg)
 		// APPLY RAMPING
 		output = apply_ramping(&output, ramp_time_pos, ramp_time_neg, brakes_on);
 
-		// GUARD FOR TORQUE ONLY 
+		// GUARD FOR TORQUE ONLY
 		// if (output < 0.001)
 		// {
 		// 	ms_without_power += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
@@ -917,15 +930,16 @@ static THD_FUNCTION(pas_thread, arg)
 		// FORCE SEND PAS CUSTOM DATA
 		// send_pas_data();
 
-		// // // DEBUG PRINT
+		// // // // DEBUG PRINT
 		//  static uint16_t delay_to_print = 0;
 		//   if (delay_to_print++ > 100)
 		//   {
 		//   	delay_to_print = 0;
-		//   	commands_printf("brakes: %.2f, max_speed: %.2f,throttle: %.2f, pas_use_adc: %d, output: %.2f,  \n", (double)brakes, (double)max_speed, (double)throttle_input, (int)pas_use_adc, (double)output);
+		//   	commands_printf("brakes: %.2f, max_speed: %.2f,throttle: %.2f, brakes: %.2f, ext_brakes_input %.2f, pas_use_adc: %d, output: %.2f,  \n", (double)brakes, (double)max_speed, (double)throttle_input, (double) brakes, (double)ext_brakes_input, (int)pas_use_adc, (double)output);
 		//  	//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
 
 		// }
+		
 		if (primary_output == true)
 		{
 			mc_interface_set_current_rel(output);
