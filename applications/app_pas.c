@@ -243,13 +243,13 @@ float app_pas_get_pedal_torque(void)
 float app_pas_get_kp(void)
 {
 	return kp * error;
-	//return drift_percent_check;
+	// return drift_percent_check;
 }
 
 float app_pas_get_ki(void)
 {
 	return ki * error_ki;
-	//return drift_percent;
+	// return drift_percent;
 }
 
 float app_pas_get_kd(void)
@@ -257,12 +257,12 @@ float app_pas_get_kd(void)
 	return kd * error_kd;
 }
 
-float app_pas_get_adc_used(void)
+bool app_pas_get_adc_used(void)
 {
 	return pas_use_adc;
 }
 
-float app_pas_get_regen_status(void)
+bool app_pas_get_regen_status(void)
 {
 	return pas_has_regen;
 }
@@ -354,7 +354,7 @@ float apply_pid_speed_limiting(float *input_value, float max_set_speed)
 	prev_error = error;
 
 	// Apply the scaling factor to the output
-	if (*input_value > output_pid )
+	if (*input_value > output_pid)
 		*input_value *= output_pid;
 
 	return *input_value;
@@ -883,13 +883,9 @@ static THD_FUNCTION(pas_thread, arg)
 		{
 			if (ext_brakes_input > 0)
 			{
-				if (rpm_now > 100){
-				output = ext_brakes_input * -1 * (0.5);
+				output = ext_brakes_input * -1;
 				ramp_time_pos = config.ramp_time_brakes_pos; // Config ramp time for brake positive ramping
 				ramp_time_neg = config.ramp_time_brakes_neg; // Config ramp time for brake negative ramping
-				}else{
-					output = 0.0;	
-				}
 			}
 		}
 
@@ -939,7 +935,7 @@ static THD_FUNCTION(pas_thread, arg)
 		//  	//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
 
 		// }
-		
+
 		if (primary_output == true)
 		{
 			mc_interface_set_current_rel(output);
@@ -947,6 +943,14 @@ static THD_FUNCTION(pas_thread, arg)
 		else
 		{
 			output_current_rel = output;
+			// // // // // DEBUG PRINT
+			// static uint16_t delay_to_print = 0;
+			// if (delay_to_print++ > 100)
+			// {
+			// 	delay_to_print = 0;
+			// 	commands_printf("output %.2f, brakes %.2f, config.pas_brake_voltage_trigger %.2f, brakes_on %d \n", (double)output, (double)brakes, (double)config.pas_brake_voltage_trigger, (int)brakes_on);
+			// 	// commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
+			// }
 		}
 	}
 }

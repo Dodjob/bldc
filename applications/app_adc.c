@@ -65,6 +65,7 @@ static volatile int adc_detached = 0;
 static volatile bool buttons_detached = false;
 static volatile bool rev_override = false;
 static volatile bool cc_override = false;
+static volatile float pas_input = 0.0;
 
 void app_adc_configure(adc_config *conf)
 {
@@ -213,7 +214,7 @@ static THD_FUNCTION(adc_thread, arg)
 		// Override pwr value, when used from LISP
 		if (adc_detached == 1 || adc_detached == 2)
 		{
-			if (!app_pas_is_running() && app_pas_get_adc_used())
+			if (!app_pas_is_running() && !app_pas_get_adc_used())
 				pwr = adc1_override;
 		}
 
@@ -276,11 +277,11 @@ static THD_FUNCTION(adc_thread, arg)
 #ifdef HW_HAS_BRAKE_OVERRIDE
 		hw_brake_override(&brake);
 #endif
-
 		// Override brake value, when used from LISP
 		if (adc_detached == 1 || adc_detached == 3)
 		{
-			brake = adc2_override;
+			if (!app_pas_is_running() && !app_pas_get_adc_used())
+				brake = adc2_override;
 		}
 
 		read_voltage2 = brake;
@@ -458,35 +459,35 @@ static THD_FUNCTION(adc_thread, arg)
 		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_ADC:
 		case ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_ADC:
 			current_mode = true;
-			if (pwr >= 0.0)
+
+			// if pedal assist (PAS) thread is running, everything go through the app_pas
+			// bypass for pas_app
+			if (app_pas_is_running() && app_pas_get_adc_used())
 			{
-				// if pedal assist (PAS) thread is running, everything go through the app_pas
-				if (app_pas_is_running() && app_pas_get_adc_used())
+				pas_input = app_pas_get_current_target_rel();
+				if (pas_input >= 0)
 				{
-					decoded_level = pwr;
-					current_rel = app_pas_get_current_target_rel();
+					pwr = pas_input;
 				}
 				else
-					current_rel = pwr;
+				{
+					if (rpm_now > 0)
+					{
+							brake = fabsf(pas_input);
+					}
+				}
+			}
+
+			if (pwr >= 0.0)
+			{
+				decoded_level = pwr;
+				current_rel = pwr;
 			}
 			else
 			{
-				if (app_pas_is_running() && app_pas_get_adc_used())
-				{
-					decoded_level2 = pwr;
-					if (app_pas_get_regen_status())
-					{
-							//current_rel = fabsf(pwr);
-							brake = fabsf(pwr);
-							current_mode_brake = true;
-
-					}
-				}
-				else
-				{
-					current_rel = fabsf(pwr);
-					current_mode_brake = true;
-				}
+				decoded_level2 = pwr;
+				current_rel = fabsf(pwr);
+				current_mode_brake = true;
 			}
 
 			if (pwr < 0.001)
@@ -500,6 +501,7 @@ static THD_FUNCTION(adc_thread, arg)
 			{
 				current_rel = -current_rel;
 			}
+
 			break;
 
 		case ADC_CTRL_TYPE_DUTY:
