@@ -464,28 +464,16 @@ static THD_FUNCTION(adc_thread, arg)
 			// bypass for pas_app
 			if (app_pas_is_running() && app_pas_get_adc_used())
 			{
-				pas_input = app_pas_get_current_target_rel();
-				if (pas_input >= 0)
-				{
-					pwr = pas_input;
-				}
-				else
-				{
-					if (rpm_now > 0)
-					{
-							brake = fabsf(pas_input);
-					}
-				}
+				pwr = app_pas_get_current_target_rel();
+				current_rel = pwr;
 			}
 
 			if (pwr >= 0.0)
 			{
-				decoded_level = pwr;
 				current_rel = pwr;
 			}
 			else
 			{
-				decoded_level2 = pwr;
 				current_rel = fabsf(pwr);
 				current_mode_brake = true;
 			}

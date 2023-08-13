@@ -819,7 +819,7 @@ static THD_FUNCTION(pas_thread, arg)
 
 		// BRAKES
 		brakes = get_brakes_input(&brakes);
-		const float rpm_now = mc_interface_get_rpm();
+		//const float rpm_now = mc_interface_get_rpm();
 
 		float ramp_time_pos = config.ramp_time_pos; // Config ramp time for positive ramping
 		float ramp_time_neg = config.ramp_time_neg; // Config ramp time for negative ramping
