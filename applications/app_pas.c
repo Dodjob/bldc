@@ -762,10 +762,20 @@ static THD_FUNCTION(pas_thread, arg)
 			if (pedal_rpm > (config.pedal_rpm_start + 1.0))
 			{
 				// currently linearly increasing pedal_rpm importance. needs to be done nicely and parametrically
+				// get pedal cadence proportional value
 				output = utils_map(pedal_rpm, config.pedal_rpm_start, config.pedal_rpm_end, 0.0, 1.0);
-				utils_truncate_number(&output, 0.0, 1.0);
-				output += torque_ratio;
+				// apply pedal non linearity
+				output = (utils_throttle_curve(output, (pas_pedal_linear_factor) * -1, 0, 0));
+				// Limit to torque/pedal ratio
+				utils_truncate_number(&output, 0.0, pas_pedal_torque_ratio);
+				// apply torque non linearity
+				torque_percent = (utils_throttle_curve((torque_percent / 100), (pas_torque_linear_factor) * -1, 0, 0)); // use exp curving to compensate bad TS and add a minimum 0.001 too
+				// add torque value
+				output += torque_percent;
+				// ensure output stays under 1.0
 				output = fmin(fmax(output, 0.0), 1.0);
+
+				// need to be fixed
 				ms_without_cadence = 0.0;
 				ms_without_cadence_cooling_time = 0.0;
 				min_start_torque_reached = false;
