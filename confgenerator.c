@@ -313,9 +313,8 @@ int32_t confgenerator_serialize_appconf(uint8_t *buffer, const app_configuration
 	buffer_append_float16(buffer, conf->app_pas_conf.ramp_time_neg, 100, &ind);
 	buffer_append_float16(buffer, conf->app_pas_conf.ramp_time_brakes_pos, 100, &ind);
 	buffer_append_float16(buffer, conf->app_pas_conf.ramp_time_brakes_neg, 100, &ind);
-	buffer[ind++] = (uint8_t)conf->app_pas_conf.pas_hall_torque_samples;
 	buffer_append_uint16(buffer, conf->app_pas_conf.pas_hall_torque_offset, &ind);
-	buffer_append_float32_auto(buffer, conf->app_pas_conf.pas_hall_torque_gain, &ind);
+	buffer_append_float32_auto(buffer, conf->app_pas_conf.pas_torque_gain, &ind);
 	buffer_append_float32_auto(buffer, conf->app_pas_conf.pas_max_speed, &ind);
 	buffer[ind++] = conf->app_pas_conf.pas_use_adc;
 	buffer_append_float32_auto(buffer, conf->app_pas_conf.pas_pid_start_percent, &ind);
@@ -326,6 +325,9 @@ int32_t confgenerator_serialize_appconf(uint8_t *buffer, const app_configuration
 	buffer_append_float32_auto(buffer, conf->app_pas_conf.pas_brake_delay, &ind);
 	buffer_append_float32_auto(buffer, conf->app_pas_conf.pas_brake_voltage_trigger, &ind);
 	buffer[ind++] = conf->app_pas_conf.pas_brake_voltage_inverted;
+	buffer_append_float16(buffer, conf->app_pas_conf.pas_torque_linear_factor, 1000, &ind);
+	buffer_append_float16(buffer, conf->app_pas_conf.pas_pedal_linear_factor, 1000, &ind);
+	buffer_append_float16(buffer, conf->app_pas_conf.pas_pedal_torque_ratio, 1000, &ind);
 	buffer[ind++] = conf->imu_conf.type;
 	buffer[ind++] = conf->imu_conf.mode;
 	buffer[ind++] = conf->imu_conf.filter;
@@ -666,9 +668,8 @@ bool confgenerator_deserialize_appconf(const uint8_t *buffer, app_configuration 
 	conf->app_pas_conf.ramp_time_neg = buffer_get_float16(buffer, 100, &ind);
 	conf->app_pas_conf.ramp_time_brakes_pos = buffer_get_float16(buffer, 100, &ind);
 	conf->app_pas_conf.ramp_time_brakes_neg = buffer_get_float16(buffer, 100, &ind);
-	conf->app_pas_conf.pas_hall_torque_samples = buffer[ind++];
 	conf->app_pas_conf.pas_hall_torque_offset = buffer_get_uint16(buffer, &ind);
-	conf->app_pas_conf.pas_hall_torque_gain = buffer_get_float32_auto(buffer, &ind);
+	conf->app_pas_conf.pas_torque_gain = buffer_get_float32_auto(buffer, &ind);
 	conf->app_pas_conf.pas_max_speed = buffer_get_float32_auto(buffer, &ind);
 	conf->app_pas_conf.pas_use_adc = buffer[ind++];
 	conf->app_pas_conf.pas_pid_start_percent = buffer_get_float32_auto(buffer, &ind);
@@ -679,6 +680,9 @@ bool confgenerator_deserialize_appconf(const uint8_t *buffer, app_configuration 
 	conf->app_pas_conf.pas_brake_delay = buffer_get_float32_auto(buffer, &ind);
 	conf->app_pas_conf.pas_brake_voltage_trigger = buffer_get_float32_auto(buffer, &ind);
 	conf->app_pas_conf.pas_brake_voltage_inverted = buffer[ind++];
+	conf->app_pas_conf.pas_torque_linear_factor = buffer_get_float16(buffer, 1000, &ind);
+	conf->app_pas_conf.pas_pedal_linear_factor = buffer_get_float16(buffer, 1000, &ind);
+	conf->app_pas_conf.pas_pedal_torque_ratio = buffer_get_float16(buffer, 1000, &ind);
 	conf->imu_conf.type = buffer[ind++];
 	conf->imu_conf.mode = buffer[ind++];
 	conf->imu_conf.filter = buffer[ind++];
@@ -1003,9 +1007,8 @@ void confgenerator_set_defaults_appconf(app_configuration *conf) {
 	conf->app_pas_conf.ramp_time_neg = APPCONF_PAS_RAMP_TIME_NEG;
 	conf->app_pas_conf.ramp_time_brakes_pos = APPCONF_PAS_RAMP_TIME_BRAKES_POS;
 	conf->app_pas_conf.ramp_time_brakes_neg = APPCONF_PAS_RAMP_TIME_BRAKES_NEG;
-	conf->app_pas_conf.pas_hall_torque_samples = APPCONF_PAS_HALL_TORQUE_SAMPLES;
 	conf->app_pas_conf.pas_hall_torque_offset = APPCONF_PAS_HALL_TORQUE_OFFSET;
-	conf->app_pas_conf.pas_hall_torque_gain = APPCONF_PAS_HALL_TORQUE_GAIN;
+	conf->app_pas_conf.pas_torque_gain = APPCONF_PAS_TORQUE_GAIN;
 	conf->app_pas_conf.pas_max_speed = APPCONF_PAS_MAX_SPEED_MS;
 	conf->app_pas_conf.pas_use_adc = APPCONF_PAS_USE_ADC;
 	conf->app_pas_conf.pas_pid_start_percent = APPCONF_PAS_PID_START;
@@ -1016,6 +1019,9 @@ void confgenerator_set_defaults_appconf(app_configuration *conf) {
 	conf->app_pas_conf.pas_brake_delay = APPCONF_PAS_BRAKE_DELAY;
 	conf->app_pas_conf.pas_brake_voltage_trigger = APPCONF_PAS_BRAKE_VOLTAGE_TRIGGER;
 	conf->app_pas_conf.pas_brake_voltage_inverted = APPCONF_PAS_BRAKE_VOLTAGE_INVERTED;
+	conf->app_pas_conf.pas_torque_linear_factor = APPCONF_PAS_TORQUE_LINEAR_FACTOR;
+	conf->app_pas_conf.pas_pedal_linear_factor = APPCONF_PAS_TORQUE_LINEAR_FACTOR;
+	conf->app_pas_conf.pas_pedal_torque_ratio = APPCONF_PAS_PEDAL_TORQUE_RATIO;
 	conf->imu_conf.type = APPCONF_IMU_TYPE;
 	conf->imu_conf.mode = APPCONF_IMU_AHRS_MODE;
 	conf->imu_conf.filter = APPCONF_IMU_FILTER;

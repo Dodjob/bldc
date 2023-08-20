@@ -95,8 +95,10 @@ static volatile uint16_t pas_data_trigger = 0;
 static volatile bool torque_started = false;
 static volatile uint8_t torque_smoothing_trigger = 0; // 2ms loop = 10* 10 = 100ms
 static volatile float pas_hall_torque_offset;
-static volatile float pas_hall_torque_gain;
-static volatile uint8_t pas_hall_torque_samples;
+static volatile float pas_torque_gain;
+static volatile float pas_torque_linear_factor;
+static volatile float pas_pedal_linear_factor;
+static volatile float pas_pedal_torque_ratio;
 
 // PID
 static volatile float kp = 0.02;				   // Proportional gain
@@ -151,8 +153,10 @@ void app_pas_configure(pas_config *conf)
 
 	// init torque sensor
 	pas_hall_torque_offset = config.pas_hall_torque_offset;
-	pas_hall_torque_gain = config.pas_hall_torque_gain;
-	pas_hall_torque_samples = config.pas_hall_torque_samples;
+	pas_torque_gain = config.pas_torque_gain;
+	pas_torque_linear_factor = config.pas_torque_linear_factor;
+	pas_pedal_linear_factor = config.pas_pedal_linear_factor;
+	pas_pedal_torque_ratio = config.pas_pedal_torque_ratio;
 }
 
 /**
@@ -470,56 +474,13 @@ void pas_event_handler(void)
 	static float period_filtered = 0;
 	static uint8_t correct_direction_counter = 0;
 	static uint8_t correct_direction_counter_last = 100;
+	static uint16_t magnet_count = 0;
 
 	uint8_t PAS1_level = palReadPad(HW_PAS1_PORT, HW_PAS1_PIN);
 	uint8_t PAS2_level = palReadPad(HW_PAS2_PORT, HW_PAS2_PIN);
 
-	// Hall sensor based torque sensor data aquisition
-	if (pedal_rpm != 0)
-	{
-		// If HALL TORQUE SENSOR
-		if (PAS1_level == 1 && PAS2_level == 1)
-		{
-			uptime++;
-		}
-		else if (uptime != 0 && pedal_rpm != 0)
-		{
-			downtime++;
-		}
-		sample_time = uptime + downtime;
-		if (sample_time > (config.magnets * 2))
-		{
-			drift_percent_check = (uptime * 100) / sample_time;
-			drift_percent = ((((uptime * 100) / sample_time) - config.pas_hall_torque_offset) * -1) * config.pas_hall_torque_gain; // 5 is a calibration factor to get percentage and 36 is the offset
-			uptime = 0;
-			downtime = 0;
-		}
-
-		// safety guards
-		drift_percent = fmin(fmax(drift_percent, 0), 100);
-
-		// reaching for smoother values
-		torque_smoothing_trigger++;
-		if (torque_smoothing_trigger > pas_hall_torque_samples)
-		{
-
-			if (drift_percent > torque_percent)
-			{
-				torque_percent += (drift_percent - torque_percent) / 2;
-			}
-			else if (drift_percent < torque_percent)
-			{
-				torque_percent -= (torque_percent - drift_percent) / 2;
-			}
-			torque_smoothing_trigger = 0;
-			// safety guards
-			torque_percent = fmin(fmax(torque_percent, 0), 100);
-		}
-	}
-	else
-	{
-		torque_percent = 0.0;
-	}
+	
+	// quadrature signal detection
 	new_state = PAS2_level * 2 + PAS1_level;
 	direction_qem = (float)QEM[old_state * 4 + new_state];
 	old_state = new_state;
@@ -568,6 +529,72 @@ void pas_event_handler(void)
 		if (inactivity_time > 1.0 / ((((config.pedal_rpm_start / 2) + pedal_rpm) / 60.0) * config.magnets) * 2)
 		{
 			pedal_rpm = 0.0;
+		}
+	}
+
+	// Hall sensor based torque sensor data aquisition
+	if (config.ctrl_type == PAS_CTRL_TYPE_HALL_TORQUE)
+	{
+		// If HALL TORQUE SENSOR is used, we need to get ratio here.
+		if (pedal_rpm != 0)
+		{
+			static bool is_next_magnet = false;
+			if (PAS1_level == 1 && PAS2_level == 1)
+			{
+				uptime++;
+				if (is_next_magnet)
+					is_next_magnet = false;
+			}
+			else
+				downtime++;
+
+			if (PAS1_level == 0 && PAS2_level == 0 && !is_next_magnet)
+			{
+				magnet_count++;
+				if (!is_next_magnet)
+					is_next_magnet = true;
+			}
+			sample_time = uptime + downtime;
+			if (magnet_count > (config.magnets / 4) && uptime != 0 && pedal_rpm != 0)
+			{
+				drift_percent_check = (uptime * 100) / sample_time;
+				drift_percent = (((((uptime * 100) / sample_time) - config.pas_hall_torque_offset) * -1) * config.pas_torque_gain); // 5 is a calibration factor to get percentage and 36 is the offset
+				uptime = 0;
+				downtime = 0;
+				magnet_count = 0;
+			}
+
+			// safety guards
+			drift_percent = fmin(fmax(drift_percent, 0), 100);
+
+			// static uint16_t delay_to_print = 0;
+			// if (delay_to_print++ > 200)
+			// {
+			// 	delay_to_print = 0;
+			// 	commands_printf("uptime %.2f, downtime %.2f, sample_time %.2f, magnet_count %d, drift_percent %.2f \n", (double)uptime, (double)downtime, (double)sample_time, (int)magnet_count, (double)drift_percent);
+			// 	// commands_printf("pas_hall_torque_offset %.2f, pas_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_torque_gain, (int)pas_hall_torque_samples);
+			// }
+
+			// reaching for smoother values
+
+			if (drift_percent > torque_percent)
+			{
+				torque_percent += (drift_percent - torque_percent) / 2;
+			}
+			else if (drift_percent < torque_percent)
+			{
+				torque_percent -= (torque_percent - drift_percent) / 2;
+			}
+			// safety guards
+			torque_percent = fmin(fmax(torque_percent, 0), 100);
+		}
+		else
+		{
+			torque_percent = 0.0;
+			drift_percent = 0.0;
+			uptime = 0;
+			downtime = 0;
+			magnet_count = 0;
 		}
 	}
 #endif
@@ -656,14 +683,23 @@ static THD_FUNCTION(pas_thread, arg)
 				first_start_init = false;
 			}
 
-			if (torque_percent > 20 && !torque_started) // 20 is a good value
+			if (torque_percent > 2 && !torque_started) // 20 is a good value
 			{
 				torque_started = true;
 			}
 			if (pedal_rpm > (config.pedal_rpm_start) && torque_started)
 			{
-
-				output = (utils_throttle_curve((torque_percent / 100), -0.95, 0, 0)) + 0.001; // use exp curving to compensate bad TS and add a minimum 0.001 too
+				// get pedal cadence proportional value
+				output = utils_map(pedal_rpm, config.pedal_rpm_start, config.pedal_rpm_end, 0.0, 1.0);
+				// apply pedal non linearity
+				output = (utils_throttle_curve(output, (pas_pedal_linear_factor) * -1, 0, 0));
+				// Limit to torque/pedal ratio
+				utils_truncate_number(&output, 0.0, pas_pedal_torque_ratio);
+				// apply torque non linearity
+				torque_percent = (utils_throttle_curve((torque_percent / 100), (pas_torque_linear_factor) * -1, 0, 0)); // use exp curving to compensate bad TS and add a minimum 0.001 too
+				// add torque value
+				output += torque_percent;
+				// ensure output stays under 1.0
 				output = fmin(fmax(output, 0.0), 1.0);
 			}
 			else
@@ -671,7 +707,14 @@ static THD_FUNCTION(pas_thread, arg)
 				output = 0.0;
 				torque_started = false;
 			}
-
+			// PRINT DEBUG
+			// static uint16_t delay_to_print = 0;
+			// if (delay_to_print++ > 100)
+			// {
+			// 	delay_to_print = 0;
+			// 	commands_printf("output %.2f, torque_percent %.2f \n", (double)output, (double)torque_percent);
+			// 	// commands_printf("pas_hall_torque_offset %.2f, pas_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_torque_gain, (int)pas_hall_torque_samples);
+			// }
 			break;
 
 		case PAS_CTRL_TYPE_CADENCE:
@@ -718,8 +761,9 @@ static THD_FUNCTION(pas_thread, arg)
 
 			if (pedal_rpm > (config.pedal_rpm_start + 1.0))
 			{
-				output = utils_map(pedal_rpm, config.pedal_rpm_start, config.pedal_rpm_end, 0.0, 0.5);
-				utils_truncate_number(&output, 0.0, 0.5);
+				// currently linearly increasing pedal_rpm importance. needs to be done nicely and parametrically
+				output = utils_map(pedal_rpm, config.pedal_rpm_start, config.pedal_rpm_end, 0.0, 1.0);
+				utils_truncate_number(&output, 0.0, 1.0);
 				output += torque_ratio;
 				output = fmin(fmax(output, 0.0), 1.0);
 				ms_without_cadence = 0.0;
@@ -729,6 +773,7 @@ static THD_FUNCTION(pas_thread, arg)
 			// start on pedal press available (1s delay) for 3s, if no PAS signal are detected it cools down for 1 second.
 			else
 			{
+				// DISABLE THIS AS IT IS BROKEN RIGHT NOW
 				// if (torque_ratio > min_start_torque)
 				// {
 				// 	min_start_torque_reached = true;
@@ -740,7 +785,8 @@ static THD_FUNCTION(pas_thread, arg)
 				// 		ms_without_cadence += (1000.0 * (float)sleep_time) / (float)CH_CFG_ST_FREQUENCY;
 				// 		if (ms_without_cadence < MAX_MS_WITHOUT_CADENCE)
 				// 		{
-				// 			output = torque_ratio;
+				// 			output = config.current_scaling * torque_ratio * sub_scaling;
+				// 			utils_truncate_number(&output, 0.0, config.current_scaling * sub_scaling);
 				// 		}
 				// 		else
 				// 		{
@@ -931,8 +977,8 @@ static THD_FUNCTION(pas_thread, arg)
 		//   if (delay_to_print++ > 100)
 		//   {
 		//   	delay_to_print = 0;
-		//   	commands_printf("brakes: %.2f, max_speed: %.2f,throttle: %.2f, brakes: %.2f, ext_brakes_input %.2f, pas_use_adc: %d, output: %.2f,  \n", (double)brakes, (double)max_speed, (double)throttle_input, (double) brakes, (double)ext_brakes_input, (int)pas_use_adc, (double)output);
-		//  	//commands_printf("pas_hall_torque_offset %.2f, pas_hall_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_hall_torque_gain, (int)pas_hall_torque_samples);
+		//   	commands_printf("brakes: %.2f, max_speed: %.2f,throttle: %.2f, pas_use_adc: %d, output: %.2f,  \n", (double)brakes, (double)max_speed, (double)throttle_input, (int)pas_use_adc, (double)output);
+		//  	//commands_printf("pas_hall_torque_offset %.2f, pas_torque_gain %.2f, pas_hall_torque_samples %d \n", (double)pas_hall_torque_offset, (double)pas_torque_gain, (int)pas_hall_torque_samples);
 
 		// }
 

@@ -196,7 +196,8 @@ typedef enum
 	DISP_POS_MODE_ENCODER,
 	DISP_POS_MODE_PID_POS,
 	DISP_POS_MODE_PID_POS_ERROR,
-	DISP_POS_MODE_ENCODER_OBSERVER_ERROR
+	DISP_POS_MODE_ENCODER_OBSERVER_ERROR,
+	DISP_POS_MODE_HALL_OBSERVER_ERROR
 } disp_pos_mode;
 
 typedef enum
@@ -773,9 +774,11 @@ typedef struct
 	float pas_brake_voltage_trigger;
 	bool pas_brake_voltage_inverted;
 	float pas_pid_start_percent;
-	uint8_t pas_hall_torque_samples;
 	float pas_hall_torque_offset;
-	float pas_hall_torque_gain;
+	float pas_torque_gain;
+	float pas_torque_linear_factor;
+	float pas_pedal_linear_factor;
+	float pas_pedal_torque_ratio;
 } pas_config;
 
 // NRF Datatypes
@@ -1160,6 +1163,8 @@ typedef enum
 	COMM_GET_GNSS = 150,
 
 	COMM_LOG_DATA_F64 = 151,
+
+	COMM_LISP_RMSG = 152,
 } COMM_PACKET_ID;
 
 // CAN commands

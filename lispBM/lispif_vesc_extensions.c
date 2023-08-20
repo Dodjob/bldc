@@ -169,6 +169,9 @@ typedef struct
 	lbm_uint pas_brake_delay;
 	lbm_uint pas_brake_voltage_trigger;
 	lbm_uint pas_brake_voltage_inverted;
+	lbm_uint pas_torque_linear_factor;
+	lbm_uint pas_pedal_linear_factor;
+	lbm_uint pas_pedal_torque_ratio;
 
 	// Sysinfo
 	lbm_uint hw_name;
@@ -653,6 +656,18 @@ static bool compare_symbol(lbm_uint sym, lbm_uint *comp)
 		{
 			get_add_symbol("pas-brake-voltage-inverted", comp);
 		}
+		else if (comp == &syms_vesc.pas_torque_linear_factor)
+		{
+			get_add_symbol("pas-torque-linear-factor", comp);
+		}
+		else if (comp == &syms_vesc.pas_pedal_linear_factor)
+		{
+			get_add_symbol("pas-pedal-linear-factor", comp);
+		}
+		else if (comp == &syms_vesc.pas_pedal_torque_ratio)
+		{
+			get_add_symbol("pas-pedal-torque-ratio", comp);
+		}
 		else if (comp == &syms_vesc.hw_name)
 		{
 			get_add_symbol("hw-name", comp);
@@ -923,7 +938,7 @@ static lbm_value get_set_bms_val(bool set, lbm_value *args, lbm_uint argn)
 	}
 	else if (compare_symbol(name, &syms_vesc.v_charge))
 	{
-		res = get_or_set_float(set, &val->v_charge, &res);
+		res = get_or_set_float(set, &val->v_charge, &set_arg);
 	}
 	else if (compare_symbol(name, &syms_vesc.i_in))
 	{
@@ -1352,6 +1367,29 @@ static lbm_value ext_send_data(lbm_value *args, lbm_uint argn)
 	return ENC_SYM_TRUE;
 }
 
+static volatile lbm_cid recv_data_cid = -1;
+
+static lbm_value ext_recv_data(lbm_value *args, lbm_uint argn) {
+	if (argn > 1 || (argn == 1 && !lbm_is_number(args[0]))) {
+		lbm_set_error_reason((char*)lbm_error_str_incorrect_arg);
+	}
+
+	float timeout = -1.0;
+	if (argn == 1) {
+		timeout = lbm_dec_as_float(args[0]);
+	}
+
+	recv_data_cid = lbm_get_current_cid();
+
+	if (timeout > 0.0) {
+		lbm_block_ctx_from_extension_timeout(timeout);
+	} else {
+		lbm_block_ctx_from_extension();
+	}
+
+	return ENC_SYM_TRUE;
+}
+
 static lbm_value ext_get_remote_state(lbm_value *args, lbm_uint argn)
 {
 	(void)args;
@@ -1667,6 +1705,13 @@ static lbm_value ext_can_cmd(lbm_value *args, lbm_uint argn)
 	mempools_free_packet_buffer(send_buf);
 
 	return ENC_SYM_TRUE;
+}
+
+static lbm_value ext_can_local_id(lbm_value *args, lbm_uint argn)
+{
+	(void)args;
+	(void)argn;
+	return lbm_enc_i(app_get_configuration()->controller_id);
 }
 
 // App set commands
@@ -2370,6 +2415,13 @@ static lbm_value ext_phase_encoder(lbm_value *args, lbm_uint argn)
 	return lbm_enc_float(mcpwm_foc_get_phase_encoder());
 }
 
+static lbm_value ext_phase_hall(lbm_value *args, lbm_uint argn)
+{
+	(void)args;
+	(void)argn;
+	return lbm_enc_float(mcpwm_foc_get_phase_hall());
+}
+
 static lbm_value ext_phase_observer(lbm_value *args, lbm_uint argn)
 {
 	(void)args;
@@ -2796,6 +2848,63 @@ static lbm_value ext_can_send_sid(lbm_value *args, lbm_uint argn)
 static lbm_value ext_can_send_eid(lbm_value *args, lbm_uint argn)
 {
 	return ext_can_send(args, argn, true);
+}
+
+static volatile lbm_cid can_recv_sid_cid = -1;
+static volatile lbm_cid can_recv_eid_cid = -1;
+
+static lbm_value ext_can_recv_sid(lbm_value *args, lbm_uint argn)
+{
+	if (argn > 1 || (argn == 1 && !lbm_is_number(args[0])))
+	{
+		lbm_set_error_reason((char *)lbm_error_str_incorrect_arg);
+	}
+
+	float timeout = -1.0;
+	if (argn == 1)
+	{
+		timeout = lbm_dec_as_float(args[0]);
+	}
+
+	can_recv_sid_cid = lbm_get_current_cid();
+
+	if (timeout > 0.0)
+	{
+		lbm_block_ctx_from_extension_timeout(timeout);
+	}
+	else
+	{
+		lbm_block_ctx_from_extension();
+	}
+
+	return ENC_SYM_TRUE;
+}
+
+static lbm_value ext_can_recv_eid(lbm_value *args, lbm_uint argn)
+{
+	if (argn > 1 || (argn == 1 && !lbm_is_number(args[0])))
+	{
+		lbm_set_error_reason((char *)lbm_error_str_incorrect_arg);
+	}
+
+	float timeout = -1.0;
+	if (argn == 1)
+	{
+		timeout = lbm_dec_as_float(args[0]);
+	}
+
+	can_recv_eid_cid = lbm_get_current_cid();
+
+	if (timeout > 0.0)
+	{
+		lbm_block_ctx_from_extension_timeout(timeout);
+	}
+	else
+	{
+		lbm_block_ctx_from_extension();
+	}
+
+	return ENC_SYM_TRUE;
 }
 
 // Math
@@ -3961,6 +4070,21 @@ static lbm_value ext_conf_set(lbm_value *args, lbm_uint argn)
 			appconf->app_pas_conf.pas_brake_voltage_trigger = lbm_dec_as_float(args[1]);
 			changed_app = 2;
 		}
+		else if (compare_symbol(name, &syms_vesc.pas_torque_linear_factor))
+		{
+			appconf->app_pas_conf.pas_torque_linear_factor = lbm_dec_as_float(args[1]);
+			changed_app = 2;
+		}
+		else if (compare_symbol(name, &syms_vesc.pas_pedal_linear_factor))
+		{
+			appconf->app_pas_conf.pas_pedal_linear_factor = lbm_dec_as_float(args[1]);
+			changed_app = 2;
+		}
+		else if (compare_symbol(name, &syms_vesc.pas_pedal_torque_ratio))
+		{
+			appconf->app_pas_conf.pas_pedal_torque_ratio = lbm_dec_as_float(args[1]);
+			changed_app = 2;
+		}
 	}
 
 	if (changed_mc > 0)
@@ -4369,6 +4493,18 @@ static lbm_value ext_conf_get(lbm_value *args, lbm_uint argn)
 	else if (compare_symbol(name, &syms_vesc.pas_brake_voltage_inverted))
 	{
 		res = lbm_enc_i(appconf->app_pas_conf.pas_brake_voltage_inverted);
+	}
+	else if (compare_symbol(name, &syms_vesc.pas_torque_linear_factor))
+	{
+		res = lbm_enc_i(appconf->app_pas_conf.pas_torque_linear_factor);
+	}
+	else if (compare_symbol(name, &syms_vesc.pas_pedal_linear_factor))
+	{
+		res = lbm_enc_i(appconf->app_pas_conf.pas_pedal_linear_factor);
+	}
+	else if (compare_symbol(name, &syms_vesc.pas_pedal_torque_ratio))
+	{
+		res = lbm_enc_i(appconf->app_pas_conf.pas_pedal_torque_ratio);
 	}
 
 	if (defaultcfg)
@@ -5409,6 +5545,19 @@ static volatile uint32_t icu_last_period = 0;
 static volatile bool icu_width_done = false;
 static volatile bool icu_period_done = false;
 
+// Remote Messages
+#define RMSG_SLOT_NUM 5
+
+typedef struct
+{
+	lbm_cid cid;
+	systime_t start_time;
+	float timeout_secs;
+} rmsg_state;
+
+static mutex_t rmsg_mutex;
+static volatile rmsg_state rmsg_slots[RMSG_SLOT_NUM];
+
 static THD_FUNCTION(event_thread, arg)
 {
 	(void)arg;
@@ -5450,6 +5599,18 @@ static THD_FUNCTION(event_thread, arg)
 				lbm_event(&v);
 			}
 		}
+
+		chMtxLock(&rmsg_mutex);
+		for (int i = 0; i < RMSG_SLOT_NUM; i++)
+		{
+			volatile rmsg_state *s = &rmsg_slots[i];
+			if (s->cid >= 0 && s->timeout_secs > 0.0 && UTILS_AGE_S(s->start_time) > s->timeout_secs)
+			{
+				lbm_unblock_ctx_unboxed(s->cid, ENC_SYM_TIMEOUT);
+				s->cid = -1;
+			}
+		}
+		chMtxUnlock(&rmsg_mutex);
 
 		chThdSleepMilliseconds(1);
 	}
@@ -5539,12 +5700,84 @@ static lbm_value ext_crc16(lbm_value *args, lbm_uint argn)
 	return lbm_enc_i(crc16((uint8_t *)array->data, len));
 }
 
+// (canmsg-recv slot timeout)
+static lbm_value ext_canmsg_recv(lbm_value *args, lbm_uint argn) {
+	LBM_CHECK_ARGN_NUMBER(2);
+
+	int slot = lbm_dec_as_i32(args[0]);
+	float timeout = lbm_dec_as_float(args[1]);
+
+	if (slot < 0 || slot >= RMSG_SLOT_NUM) {
+		return ENC_SYM_TERROR;
+	}
+
+	chMtxLock(&rmsg_mutex);
+	rmsg_slots[slot].cid = lbm_get_current_cid();
+	rmsg_slots[slot].start_time = chVTGetSystemTimeX();
+	rmsg_slots[slot].timeout_secs = timeout;
+	chMtxUnlock(&rmsg_mutex);
+
+	lbm_block_ctx_from_extension();
+
+	return ENC_SYM_TRUE;
+}
+
+// (canmsg-send can-id slot msg)
+static lbm_value ext_canmsg_send(lbm_value *args, lbm_uint argn) {
+	if (argn != 3 ||
+			!lbm_is_number(args[0]) ||
+			!lbm_is_number(args[1]) ||
+			!lbm_is_array_r(args[2])) {
+		lbm_set_error_reason((char*)lbm_error_str_incorrect_arg);
+		return ENC_SYM_TERROR;
+	}
+
+	int can_id = lbm_dec_as_i32(args[0]);
+	int slot = lbm_dec_as_i32(args[1]);
+	lbm_array_header_t *array = (lbm_array_header_t *)lbm_car(args[2]);
+
+	if (can_id < 0 || can_id > 254) {
+		return ENC_SYM_TERROR;
+	}
+
+	if (slot < 0 || slot >= RMSG_SLOT_NUM) {
+		return ENC_SYM_TERROR;
+	}
+
+	if (array == NULL) {
+		return ENC_SYM_TERROR;
+	}
+
+	if (array->size > 500) {
+		return ENC_SYM_TERROR;
+	}
+
+	uint8_t *buf = mempools_get_packet_buffer();
+	buf[0] = COMM_LISP_RMSG;
+	buf[1] = slot;
+	memcpy(buf + 2, array->data, array->size);
+	comm_can_send_buffer(can_id, buf, array->size + 2, 2);
+	mempools_free_packet_buffer(buf);
+
+	return ENC_SYM_TRUE;
+}
+
 void lispif_load_vesc_extensions(void)
 {
 	lispif_stop_lib();
 
 	if (event_tp == NULL)
 	{
+		chMtxObjectInit(&rmsg_mutex);
+
+		chMtxLock(&rmsg_mutex);
+		for (int i = 0; i < RMSG_SLOT_NUM; i++)
+		{
+			rmsg_slots[i].cid = -1;
+			rmsg_slots[i].timeout_secs = -1.0;
+		}
+		chMtxUnlock(&rmsg_mutex);
+
 		chThdCreateStatic(event_thread_wa, sizeof(event_thread_wa), NORMALPRIO - 2, event_thread, NULL);
 	}
 
@@ -5599,6 +5832,7 @@ void lispif_load_vesc_extensions(void)
 	lbm_add_extension("get-imu-acc-derot", ext_get_imu_acc_derot);
 	lbm_add_extension("get-imu-gyro-derot", ext_get_imu_gyro_derot);
 	lbm_add_extension("send-data", ext_send_data);
+	lbm_add_extension("recv-data", ext_recv_data);
 	lbm_add_extension("get-remote-state", ext_get_remote_state);
 	lbm_add_extension("eeprom-store-f", ext_eeprom_store_f);
 	lbm_add_extension("eeprom-read-f", ext_eeprom_read_f);
@@ -5681,6 +5915,7 @@ void lispif_load_vesc_extensions(void)
 	lbm_add_extension("pos-pid-error", ext_pos_pid_error);
 	lbm_add_extension("phase-motor", ext_phase_motor);
 	lbm_add_extension("phase-encoder", ext_phase_encoder);
+	lbm_add_extension("phase-hall", ext_phase_hall);
 	lbm_add_extension("phase-observer", ext_phase_observer);
 	lbm_add_extension("observer-error", ext_observer_error);
 
@@ -5719,7 +5954,10 @@ void lispif_load_vesc_extensions(void)
 	lbm_add_extension("can-scan", ext_can_scan);
 	lbm_add_extension("can-send-sid", ext_can_send_sid);
 	lbm_add_extension("can-send-eid", ext_can_send_eid);
+	lbm_add_extension("can-recv-sid", ext_can_recv_sid);
+	lbm_add_extension("can-recv-eid", ext_can_recv_eid);
 	lbm_add_extension("can-cmd", ext_can_cmd);
+	lbm_add_extension("can-local-id", ext_can_local_id);
 
 	// Math
 	lbm_add_extension("throttle-curve", ext_throttle_curve);
@@ -5812,6 +6050,10 @@ void lispif_load_vesc_extensions(void)
 	lbm_add_extension("gnss-date-time", ext_gnss_date_time);
 	lbm_add_extension("gnss-age", ext_gnss_age);
 
+	// CAN-Messages
+	lbm_add_extension("canmsg-recv", ext_canmsg_recv);
+	lbm_add_extension("canmsg-send", ext_canmsg_send);
+
 	// Extra extensions
 	lbm_array_extensions_init();
 	lbm_math_extensions_init();
@@ -5820,35 +6062,72 @@ void lispif_load_vesc_extensions(void)
 
 void lispif_process_can(uint32_t can_id, uint8_t *data8, int len, bool is_ext)
 {
-	if (!event_can_sid_en && !is_ext)
+	if (is_ext)
 	{
-		return;
+		if (can_recv_eid_cid < 0 && !event_can_eid_en)
+		{
+			return;
+		}
 	}
-
-	if (!event_can_eid_en && is_ext)
+	else
 	{
-		return;
+		if (can_recv_sid_cid < 0 && !event_can_sid_en)
+		{
+			return;
+		}
 	}
 
 	lbm_flat_value_t v;
 	if (lbm_start_flatten(&v, 50 + len))
 	{
 		f_cons(&v);
-		f_sym(&v, is_ext ? sym_event_can_eid : sym_event_can_sid);
-		f_cons(&v);
-		f_i32(&v, can_id);
-		f_lbm_array(&v, len, data8);
-		lbm_finish_flatten(&v);
-		if (!lbm_event(&v))
+
+		if ((can_recv_sid_cid < 0 && !is_ext) || (can_recv_eid_cid < 0 && is_ext))
 		{
-			lbm_free(v.buf);
+			f_sym(&v, is_ext ? sym_event_can_eid : sym_event_can_sid);
+			f_cons(&v);
+			f_i32(&v, can_id);
+			f_lbm_array(&v, len, data8);
+		}
+		else
+		{
+			f_i32(&v, can_id);
+			f_cons(&v);
+			f_lbm_array(&v, len, data8);
+			f_sym(&v, ENC_SYM_NIL);
+		}
+
+		lbm_finish_flatten(&v);
+
+		if (can_recv_sid_cid >= 0 && !is_ext)
+		{
+			if (!lbm_unblock_ctx(can_recv_sid_cid, &v))
+			{
+				lbm_free(v.buf);
+			}
+			can_recv_sid_cid = -1;
+		}
+		else if (can_recv_eid_cid >= 0 && is_ext)
+		{
+			if (!lbm_unblock_ctx(can_recv_eid_cid, &v))
+			{
+				lbm_free(v.buf);
+			}
+			can_recv_eid_cid = -1;
+		}
+		else
+		{
+			if (!lbm_event(&v))
+			{
+				lbm_free(v.buf);
+			}
 		}
 	}
 }
 
 void lispif_process_custom_app_data(unsigned char *data, unsigned int len)
 {
-	if (!event_data_rx_en)
+	if (!event_data_rx_en && recv_data_cid < 0)
 	{
 		return;
 	}
@@ -5856,13 +6135,28 @@ void lispif_process_custom_app_data(unsigned char *data, unsigned int len)
 	lbm_flat_value_t v;
 	if (lbm_start_flatten(&v, 30 + len))
 	{
-		f_cons(&v);
-		f_sym(&v, sym_event_data_rx);
+		if (recv_data_cid < 0)
+		{
+			f_cons(&v);
+			f_sym(&v, sym_event_data_rx);
+		}
 		f_lbm_array(&v, len, data);
 		lbm_finish_flatten(&v);
-		if (!lbm_event(&v))
+
+		if (recv_data_cid >= 0)
 		{
-			lbm_free(v.buf);
+			if (!lbm_unblock_ctx(recv_data_cid, &v))
+			{
+				lbm_free(v.buf);
+			}
+			recv_data_cid = -1;
+		}
+		else
+		{
+			if (!lbm_event(&v))
+			{
+				lbm_free(v.buf);
+			}
 		}
 	}
 }
@@ -5883,10 +6177,56 @@ void lispif_process_shutdown(void)
 	}
 }
 
-void lispif_disable_all_events(void) {
+void lispif_process_rmsg(int slot, unsigned char *data, unsigned int len)
+{
+	if (event_tp == NULL)
+	{
+		return;
+	}
+
+	chMtxLock(&rmsg_mutex);
+
+	if (slot < 0 || slot >= RMSG_SLOT_NUM || rmsg_slots[slot].cid < 0)
+	{
+		chMtxUnlock(&rmsg_mutex);
+		return;
+	}
+
+	lbm_flat_value_t v;
+	if (lbm_start_flatten(&v, 10 + len))
+	{
+		f_lbm_array(&v, len, data);
+		lbm_finish_flatten(&v);
+
+		if (!lbm_unblock_ctx(rmsg_slots[slot].cid, &v))
+		{
+			lbm_free(v.buf);
+		}
+
+		rmsg_slots[slot].cid = -1;
+	}
+
+	chMtxUnlock(&rmsg_mutex);
+}
+
+void lispif_disable_all_events(void)
+{
+	if (event_tp != NULL)
+	{
+		chMtxLock(&rmsg_mutex);
+		for (int i = 0; i < RMSG_SLOT_NUM; i++)
+		{
+			rmsg_slots[i].cid = -1;
+		}
+		chMtxUnlock(&rmsg_mutex);
+	}
+
 	lispif_stop_lib();
 	event_can_sid_en = false;
 	event_can_eid_en = false;
+	can_recv_sid_cid = -1;
+	can_recv_eid_cid = -1;
+	recv_data_cid = -1;
 	event_data_rx_en = false;
 	event_shutdown_en = false;
 	event_icu_width_en = false;
