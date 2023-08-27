@@ -65,7 +65,6 @@ static volatile int adc_detached = 0;
 static volatile bool buttons_detached = false;
 static volatile bool rev_override = false;
 static volatile bool cc_override = false;
-static volatile float pas_input = 0.0;
 
 void app_adc_configure(adc_config *conf)
 {
